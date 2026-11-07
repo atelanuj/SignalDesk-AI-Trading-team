@@ -1,7 +1,7 @@
 import re
 from decimal import Decimal
 from uuid import UUID
-from typing import Literal
+from typing import Annotated, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .config import DEFAULT_SYMBOLS, US_SYMBOLS
 from .strategies import STRATEGIES
@@ -112,6 +112,21 @@ class WatchlistSymbolRequest(BaseModel):
         return self
 
 
+PriceLevel = Annotated[Decimal, Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)]
+
+
+def validate_paper_levels(entry_price, stop_loss, target_price):
+    if stop_loss is not None and stop_loss >= entry_price:
+        raise ValueError('Stop loss must be below your entry price for this long-only paper trade.')
+    if target_price is not None and target_price <= entry_price:
+        raise ValueError('Target price must be above your entry price for this long-only paper trade.')
+
+
+class PaperTradeLevelsRequest(BaseModel):
+    stop_loss: PriceLevel | None = None
+    target_price: PriceLevel | None = None
+
+
 class PaperTradeRequest(WatchlistSymbolRequest):
     client_token: UUID
     scan_id: UUID
@@ -119,6 +134,13 @@ class PaperTradeRequest(WatchlistSymbolRequest):
     entry_price: Decimal = Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)
     entry_fees: Decimal = Field(default=Decimal('0'), ge=0, le=1_000_000_000, max_digits=14, decimal_places=4)
     notes: str = Field(default='', max_length=4000)
+    stop_loss: PriceLevel | None = None
+    target_price: PriceLevel | None = None
+
+    @model_validator(mode='after')
+    def valid_exit_levels(self):
+        validate_paper_levels(self.entry_price, self.stop_loss, self.target_price)
+        return self
 
 
 class ClosePaperTradeRequest(BaseModel):

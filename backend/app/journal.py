@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
 from .db import PaperTrade, PriceCache, Scan, Session, now
-from .schemas import ClosePaperTradeRequest, PaperTradeRequest, ScanRequest
+from .schemas import ClosePaperTradeRequest, PaperTradeRequest, ScanRequest, PaperTradeLevelsRequest, validate_paper_levels
 
 router = APIRouter(prefix='/api/journal', tags=['Paper trading'])
 
@@ -30,6 +30,9 @@ def trade_dict(trade, cached=None):
         'id': trade.id, 'market': trade.market, 'symbol': trade.symbol, 'currency': trade.currency,
         'status': trade.status, 'quantity': trade.quantity, 'entry_price': str(trade.entry_price),
         'entry_fees': str(trade.entry_fees), 'exit_price': str(trade.exit_price) if closed else None,
+        'stop_loss': str(trade.stop_loss) if trade.stop_loss is not None else None,
+        'target_price': str(trade.target_price) if trade.target_price is not None else None,
+        'levels_mode': 'manual',
         'exit_fees': str(trade.exit_fees), 'opened_at': trade.opened_at.isoformat(),
         'closed_at': trade.closed_at.isoformat() if trade.closed_at else None,
         'notes': trade.notes, 'reflection': trade.reflection, 'scan_id': trade.scan_id,
@@ -79,9 +82,27 @@ def open_trade(request: PaperTradeRequest):
             id=str(request.client_token), market=request.market, symbol=request.symbol,
             currency=item['currency'], quantity=request.quantity, entry_price=request.entry_price,
             entry_fees=request.entry_fees, notes=request.notes.strip(), scan_id=scan.id,
+            stop_loss=request.stop_loss, target_price=request.target_price,
             signal_snapshot={k: v for k, v in item.items() if k != 'chart'},
         )
         db.add(trade)
+        db.flush()
+        return trade_dict(trade)
+
+
+@router.put('/{trade_id}/levels')
+def update_levels(trade_id: UUID, request: PaperTradeLevelsRequest):
+    with Session.begin() as db:
+        trade = db.scalar(select(PaperTrade).where(PaperTrade.id == str(trade_id)).with_for_update())
+        if not trade:
+            raise HTTPException(404, 'Paper trade not found.')
+        if trade.status != 'OPEN':
+            raise HTTPException(409, 'Targets and stop losses cannot be changed after a paper position is closed.')
+        try:
+            validate_paper_levels(trade.entry_price, request.stop_loss, request.target_price)
+        except ValueError as error:
+            raise HTTPException(422, str(error))
+        trade.stop_loss, trade.target_price = request.stop_loss, request.target_price
         db.flush()
         return trade_dict(trade)
 

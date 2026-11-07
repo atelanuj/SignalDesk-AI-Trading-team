@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import DATABASE_URL
+from .migrations import apply_migrations
 
 
 def now():
@@ -72,6 +73,8 @@ class PaperTrade(Base):
     quantity: Mapped[int] = mapped_column(Integer)
     entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 4))
     entry_fees: Mapped[Decimal] = mapped_column(Numeric(20, 4), default=0)
+    stop_loss: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    target_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     exit_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
     exit_fees: Mapped[Decimal] = mapped_column(Numeric(20, 4), default=0)
     opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -98,3 +101,5 @@ Session = sessionmaker(engine, expire_on_commit=False)
 
 def init_db():
     Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        apply_migrations(connection)

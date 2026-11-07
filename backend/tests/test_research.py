@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from app.db import Conversation, ResearchRun, Scan, Session, init_db
 from app.research import ROLES, focused_evidence, stream_evaluation, computed_summary
 from app.agent import compact_scan
+from app.language import BEGINNER_GUIDANCE
 
 
 def context(scan_id='scan'):
@@ -26,7 +27,7 @@ def test_exact_signal_summary_and_atr_ratio_are_generated_in_python():
     data['result']['items'][0].update({'risk': {'stop_reference': 96, 'target_reference': 108}, 'score': 0, 'agreement_pct': 100})
     evidence = focused_evidence(data, 'TCS.NS')
     assert evidence['atr_reward_risk']['TCS.NS'] == 2
-    assert '| TCS.NS | HOLD | 0 | 100% |' in computed_summary(evidence)
+    assert '| TCS.NS | HOLD | 0 | 100% |' in computed_summary(evidence, detailed=True)
     assert 'manually' in evidence['gate_scope']
 
 
@@ -73,6 +74,7 @@ def test_roles_are_separate_calls_pass_reports_forward_and_persist(fail_at):
         else:
             events = asyncio.run(collect())
             assert len(calls) == 7
+            assert all(BEGINNER_GUIDANCE in call['messages'][0]['content'] for call in calls)
             assert [e[0] for e in events].count('stage') == 7
             assert any(e[0] == 'delta' for e in events)
             assert 'Public report 2' in calls[2]['messages'][1]['content']

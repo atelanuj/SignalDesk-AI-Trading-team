@@ -35,6 +35,7 @@ def test_paper_entry_exit_fees_persistence_and_duplicate_protection(journal_scan
         assert opened.status_code == 201
         trade = opened.json()
         assert trade['status'] == 'OPEN' and trade['pnl'] == '-15.00'
+        assert trade['stop_loss'] is None and trade['target_price'] is None
         assert trade['signal_snapshot']['signal'] == 'HOLD'
         assert client.post('/api/journal', json=body).status_code == 409
         assert any(t['id'] == trade['id'] for t in client.get('/api/journal?market=IN').json()['trades'])
@@ -77,3 +78,34 @@ def test_watchlist_add_is_deduplicated_preserves_members_and_respects_limit():
             db.execute(delete(Setting).where(Setting.key == 'watchlist_IN'))
             if original is not None:
                 db.add(Setting(key='watchlist_IN', value=original))
+
+
+def test_paper_exit_levels_can_be_saved_edited_cleared_and_preserved_on_close(journal_scan):
+    with TestClient(app) as client:
+        response = client.post('/api/journal', json=payload(journal_scan, stop_loss='95.5', target_price='120'))
+        assert response.status_code == 201
+        trade = response.json()
+        assert trade['stop_loss'] == '95.5' and trade['target_price'] == '120'
+        assert trade['levels_mode'] == 'manual'
+        path = f"/api/journal/{trade['id']}/levels"
+        changed = client.put(path, json={'stop_loss': '98.1234', 'target_price': '125.75'})
+        assert changed.status_code == 200
+        assert changed.json()['stop_loss'] == '98.1234'
+        invalid = client.put(path, json={'stop_loss': '105', 'target_price': '130'})
+        assert invalid.status_code == 422
+        assert 'below your entry' in invalid.json()['detail']
+        saved = next(t for t in client.get('/api/journal?market=IN').json()['trades'] if t['id'] == trade['id'])
+        assert saved['stop_loss'] == '98.1234' and saved['target_price'] == '125.7500'
+        assert saved['status'] == 'OPEN' and saved['pnl'] == '-15.00'
+        cleared = client.put(path, json={'stop_loss': None, 'target_price': None}).json()
+        assert cleared['stop_loss'] is None and cleared['target_price'] is None
+        assert client.put(path, json={'stop_loss': '90', 'target_price': '115'}).status_code == 200
+        closed = client.post(f"/api/journal/{trade['id']}/close", json={'exit_price': '115'}).json()
+        assert closed['stop_loss'] == '90.0000' and closed['target_price'] == '115.0000'
+        assert client.put(path, json={'stop_loss': '80', 'target_price': '140'}).status_code == 409
+
+
+@pytest.mark.parametrize('levels', [{'stop_loss': '0'}, {'stop_loss': 'NaN'}, {'stop_loss': '101.25'}, {'stop_loss': '110'}, {'target_price': '101.25'}, {'target_price': '-1'}, {'target_price': '100'}, {'target_price': 'NaN'}])
+def test_invalid_exit_levels_are_rejected_at_entry(journal_scan, levels):
+    with TestClient(app) as client:
+        assert client.post('/api/journal', json=payload(journal_scan, **levels)).status_code == 422

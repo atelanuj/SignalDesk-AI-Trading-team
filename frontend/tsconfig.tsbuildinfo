@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx","./src/screener.ts"],"version":"5.9.3"}
+{"root":["./src/journal.tsx","./src/main.tsx","./src/research.tsx","./src/screener.ts"],"version":"5.9.3"}

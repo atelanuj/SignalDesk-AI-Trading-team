@@ -50,6 +50,16 @@ Filter completed results using the **Signal** dropdown (**BUY / HOLD / SELL**) o
 
 ## How AI evaluates a stock
 
+### Beginner-friendly explanations
+
+The default audience is someone completely new to trading. Chat, IPO explanations, journal help and every saved AI-role report use the same plain-English guidance. Stock responses explain **what the signal means**, **why the rules say this**, **what could go wrong**, and **one small practice step**. Technical terms are defined when needed; long indicator lists and internal team names are kept out of the default explanation.
+
+The generated single-stock introduction explains BUY/HOLD/SELL, shows the data date and counts matching rules in words (for example, “2 of 5 rules”), without treating agreement as a probability of profit. Broad-screen introductions show five stocks and disclose coverage; full results remain in the screener. Ask for a **detailed breakdown** or **full table** for more technical detail. Simple definition questions can receive a direct short answer without running the seven-stage stock review. New chat starters cover signal meanings, plain-English stock explanations and practice trades with imaginary money. Previous saved messages are preserved; the new guidance applies to future replies.
+
+BUY is a label for further study, HOLD means no clear new signal from the selected rules, and SELL calls for reviewing an exit only if you already own shares. No response should assume ownership, guarantee a safe trade or pressure a beginner to use real money. Any made-up teaching example must be clearly labelled hypothetical.
+
+### Research workflow
+
 The workflow follows the role separation in [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents#tradingagents-framework), with an independent, bounded technical implementation using NVIDIA Nemotron. It does not import or run the upstream LangGraph package. Each role listed below executes as a **separate model call**, passing its public report to subsequent roles. A stock evaluation uses seven role calls, plus the initial tool-routing call, so it takes longer and uses more provider tokens than a plain technical screen. The screener itself never needs the LLM.
 
 1. **Collect and validate evidence.** Resolve the selected market, fetch adjusted completed daily OHLCV, require 220 usable bars, and compute the five rules in Python. Missing history produces a visible per-stock error; stale data forces HOLD. The AI cannot change these numbers or labels.
@@ -73,6 +83,14 @@ Chat starters include stock debates, hypothetical paper plans, strategy disagree
 From a completed screener result or stock details, choose **Click to paper trade**. Enter whole-share quantity, a simulated entry price, entry fees and your thesis, then select **Record paper trade**. The initial price is the screen's adjusted historical close; it is a manual simulated fill, not a current executable quote. The journal preserves the original scan, signal, evidence date and risk references. All research labels can be journaled manually; a paper entry does not turn HOLD or SELL into a BUY signal.
 
 Open **Paper trading journal** to filter open/closed entries and stock symbols. India and US totals stay separate. Select **Close paper position**, enter a simulated exit price and exit fees, and record an exit reflection. A position closes in full once; duplicate entry tokens and repeated close requests are rejected. No real orders are sent.
+
+### Target and stop loss
+
+Set optional **Stop-loss price** and **Target price** when recording a paper entry. A stop loss is a price where you plan to limit a loss; a target is a price where you plan to take a profit, before fees. For these long-only practice positions, the stop loss must be below the entry price and the target above it. Screen-based example levels are prefilled when available; review them if you change the entry price. No level is invented when the screen has no reference.
+
+Every journal card shows the saved target and stop loss. Use **Set/Edit target / stop loss** to update an open position; leave either field empty to remove that level. Closed positions retain their recorded levels and cannot be edited. These are **manual tracking references**, not automatic exit orders: reaching a level does not close the simulation, and daily cached prices do not prove an intraday trigger. Use **Close paper position** to record the actual simulated exit price and fees yourself.
+
+The versioned, additive migration in `backend/app/migrations.py` adds nullable price columns to existing paper trades at startup. Existing positions, entry prices and P&L are preserved; older positions start with no target or stop loss until you set them. `PUT /api/journal/{id}/levels` replaces both optional levels for an open position.
 
 `Realized P&L = quantity × (exit price − entry price) − entry fees − exit fees`.
 
@@ -153,7 +171,7 @@ The Indian IPO desk and chat use NSE's current and upcoming issue feeds, cached 
 
 Market-specific watchlists use new settings keys without altering the database schema. Legacy watchlists are read per market until saved; existing scans remain in history. Scheduled scans use the Indian watchlist. Switching markets starts a fresh chat context while retaining saved conversations and market-filtered scan history.
 
-Tables are initialized at boot using SQLAlchemy. This update adds `paper_trades` and `research_runs` without modifying existing tables, so existing scans, watchlists and chats are preserved. Add a migration system before changing existing production columns. One chat stream is admitted at a time; up to four manual scans can be outstanding. Interactive API documentation is available at **http://localhost:3000/api/docs**.
+Tables are initialized at boot using SQLAlchemy, followed by versioned additive migrations recorded in `schema_migrations`. Startup migrations use a PostgreSQL transaction and advisory lock so repeated API/worker starts do not apply the same change twice. Nullable target and stop-loss columns preserve older paper trades; scans, watchlists, chats and research reports remain intact. One chat stream is admitted at a time; up to four manual scans can be outstanding. Interactive API documentation is available at **http://localhost:3000/api/docs**.
 
 ## Development and validation
 
