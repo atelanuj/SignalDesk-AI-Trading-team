@@ -9,10 +9,12 @@ from sqlalchemy import select, text
 from .agent import stream_chat
 from .config import API_KEY, DEFAULT_SYMBOLS, MODEL, NSE_SYMBOLS, US_SYMBOLS
 from .ipo import indian_ipos
-from .db import Conversation, Message, Scan, Session, Setting, engine, init_db
-from .schemas import ChatRequest, ScanRequest, WatchlistRequest
+from .db import Conversation, Message, Scan, Session, Setting, ResearchRun, engine, init_db
+from .schemas import ChatRequest, ScanRequest, WatchlistRequest, WatchlistSymbolRequest
+from .journal import router as journal_router
 from .strategies import STRATEGIES
 from .universes import get_universe, universe_options
+from .research import PROCESS_ID
 
 chat_lock = threading.Lock()
 
@@ -24,6 +26,7 @@ async def lifespan(app):
 
 
 app = FastAPI(title='Signal Desk API', version='1.0.0', lifespan=lifespan, docs_url='/api/docs', openapi_url='/api/openapi.json', redoc_url=None)
+app.include_router(journal_router)
 
 
 def scan_dict(scan):
@@ -59,26 +62,49 @@ def ipos(market: str = Query('IN', pattern='^(IN|US)$')):
     return indian_ipos()
 
 
+def watchlist_value(db, market):
+    setting = db.get(Setting, 'watchlist_' + market)
+    if setting:
+        return setting.value
+    legacy = db.get(Setting, 'watchlist')
+    symbols = [s for s in legacy.value['symbols'] if s.endswith(('.NS', '.BO')) == (market == 'IN')] if legacy else []
+    return {'market': market, 'symbols': symbols or (NSE_SYMBOLS if market == 'IN' else US_SYMBOLS)}
+
+
 @app.get('/api/watchlist')
 def watchlist(market: str = Query('IN', pattern='^(IN|US)$')):
     with Session() as db:
-        setting = db.get(Setting, 'watchlist_' + market)
-        if setting:
-            return setting.value
-        legacy = db.get(Setting, 'watchlist')
-        symbols = [s for s in legacy.value['symbols'] if s.endswith(('.NS', '.BO')) == (market == 'IN')] if legacy else []
-        return {'market': market, 'symbols': symbols or (NSE_SYMBOLS if market == 'IN' else US_SYMBOLS)}
+        return watchlist_value(db, market)
 
 
 @app.put('/api/watchlist')
 def save_watchlist(request: WatchlistRequest):
     with Session.begin() as db:
+        db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'), {'key': 'watchlist_' + request.market})
         setting = db.get(Setting, 'watchlist_' + request.market)
         if setting:
             setting.value = request.model_dump()
         else:
             db.add(Setting(key='watchlist_' + request.market, value=request.model_dump()))
     return request
+
+
+@app.post('/api/watchlist/symbols')
+def add_watchlist_symbol(request: WatchlistSymbolRequest):
+    with Session.begin() as db:
+        key = 'watchlist_' + request.market
+        db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'), {'key': key})
+        current = watchlist_value(db, request.market)['symbols']
+        symbols = list(dict.fromkeys([*current, request.symbol]))
+        if len(symbols) > 20:
+            raise HTTPException(422, 'Your watchlist has 20 stocks. Remove one before adding another.')
+        value = {'market': request.market, 'symbols': symbols}
+        setting = db.get(Setting, key)
+        if setting:
+            setting.value = value
+        else:
+            db.add(Setting(key=key, value=value))
+        return value
 
 
 @app.post('/api/scans', status_code=202)
@@ -118,6 +144,17 @@ def conversations():
         return [{'id': c.id, 'title': c.title, 'created_at': c.created_at.isoformat()} for c in db.scalars(select(Conversation).order_by(Conversation.created_at.desc()).limit(50))]
 
 
+@app.get('/api/research/{run_id}')
+def research_report(run_id: str):
+    with Session.begin() as db:
+        run = db.get(ResearchRun, run_id)
+        if not run:
+            raise HTTPException(404, 'Research run not found.')
+        if run.status == 'running' and run.reports.get('process_id') != PROCESS_ID:
+            run.status = 'incomplete'
+        return {'id': run.id, 'scan_id': run.scan_id, 'status': run.status, 'created_at': run.created_at.isoformat(), 'reports': run.reports}
+
+
 @app.post('/api/conversations', status_code=201)
 def new_conversation():
     with Session.begin() as db:
@@ -132,7 +169,15 @@ def messages(conversation_id: str):
     with Session() as db:
         if db.get(Conversation, conversation_id) is None:
             raise HTTPException(404, 'Conversation not found.')
-        return [{'id': m.id, 'role': m.role, 'content': m.content, 'scan_id': m.scan_id} for m in db.scalars(select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at))]
+        rows = db.scalars(select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)).all()
+        runs = db.scalars(select(ResearchRun).where(ResearchRun.conversation_id == conversation_id).order_by(ResearchRun.created_at)).all()
+        result, user_at = [], None
+        for m in rows:
+            if m.role == 'user':
+                user_at = m.created_at
+            run = next((r for r in reversed(runs) if user_at and user_at <= r.created_at <= m.created_at), None) if m.role == 'assistant' else None
+            result.append({'id': m.id, 'role': m.role, 'content': m.content, 'scan_id': m.scan_id, 'research_id': run.id if run else None})
+        return result
 
 
 @app.post('/api/chat')

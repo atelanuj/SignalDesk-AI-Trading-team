@@ -33,18 +33,52 @@ PostgreSQL data survives `down` in the `postgres_data` named volume. Do not add 
 - Screen a watchlist on demand or on a configured interval.
 - Calculate five transparent daily-bar strategies and aggregate BUY / SELL / HOLD.
 - Inspect the price chart, per-rule evidence, data date, agreement, and illustrative ATR risk references for each asset.
-- Ask Nemotron to select a bounded `screen_market` tool call, compare results and explain technical bull/bear/risk perspectives. Follow-up questions use the selected scan and conversation context. Only the final answer is displayed, not private reasoning traces.
-- Persist watchlists, scan requests, results, data cache and conversations in PostgreSQL.
+- Ask Nemotron to select a bounded `screen_market` tool call, then run separate technical analyst, bull/bear researcher, research manager, paper trader, risk manager and final reviewer calls. Follow-up stock questions use the selected evidence; **View AI role reports** opens the saved public reports.
+- Record manual long-only simulated entries and exits, fees, theses and reflections in the **Paper trading journal**, with separate India/US records and realized/unrealized P&L.
+- Add individual screener results to the saved watchlist without replacing its other members.
+- Persist watchlists, scans, research reports, paper trades, price cache and conversations in PostgreSQL.
 - Keep scan work in a separate worker so price downloads do not block the API.
 - Show provider errors, failed scans and stale bars explicitly. No fabricated demo quotes or fallback signals.
 
-This screens watchlists and selected NIFTY constituents, rather than every stock on an exchange. It does not execute orders, do portfolio accounting, backtest strategies, fetch news/fundamentals, or promise predictive accuracy. SELL means reduce/exit a long position; it is not a short-sale instruction. Technical research labels are not personalized investment advice.
+This screens watchlists and selected NIFTY constituents, rather than every stock on an exchange. It does not execute real orders, reconcile a brokerage portfolio, backtest strategies, fetch news/fundamentals, or promise predictive accuracy. SELL means reduce/exit a long position; it is not a short-sale instruction. Technical research labels are not personalized investment advice.
 
 ## Screening universes and filters
 
 In **Market screener**, select **My watchlist**, **NIFTY 50**, **NIFTY 100**, **NIFTY Next 50**, **NIFTY 200**, or **NIFTY Bank**, then choose **Run screen**. Index options appear only in India mode. The backend downloads the complete current constituent CSV from [NSE Indices](https://www.niftyindices.com/indices/equity/broad-based-indices/nifty-100), caches it for one hour, and stores the resolved tickers and source timestamp with the scan. Index scans cover every returned constituent (up to 200); custom watchlists remain limited to 20. An unavailable or incomplete constituent feed produces a visible error. Index membership reflects the downloaded file, not historical membership.
 
-Filter completed results by **BUY / SELL / HOLD**, symbol search, minimum rule agreement, gainers/losers, and data freshness. Sort by score, agreement, price change, or symbol. Filters combine; signal counts reflect the other active filters, and **Reset filters** clears all result filters. Changing filters does not download new prices or call the LLM. Selecting a different universe requires a new screen, or loads its latest saved screen when available. Watchlist contents are preserved. Larger index screens can take several minutes, with individual missing price histories reported separately.
+Filter completed results using the **Signal** dropdown (**BUY / HOLD / SELL**) or matching signal tabs, symbol search, minimum rule agreement, gainers/losers, and data freshness. Sort by score, agreement, price change, or symbol. Filters combine; signal counts reflect the other active filters, and **Reset filters** clears all result filters. Each row offers **Click to paper trade**, **Add to watchlist**, and **View evidence**. The same paper-trade and watchlist actions appear in stock details. Changing filters does not download new prices or call the LLM. Selecting a different universe requires a new screen, or loads its latest saved screen when available. Watchlist contents are preserved. Larger index screens can take several minutes, with individual missing price histories reported separately.
+
+## How AI evaluates a stock
+
+The workflow follows the role separation in [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents#tradingagents-framework), with an independent, bounded technical implementation using NVIDIA Nemotron. It does not import or run the upstream LangGraph package. Each role listed below executes as a **separate model call**, passing its public report to subsequent roles. A stock evaluation uses seven role calls, plus the initial tool-routing call, so it takes longer and uses more provider tokens than a plain technical screen. The screener itself never needs the LLM.
+
+1. **Collect and validate evidence.** Resolve the selected market, fetch adjusted completed daily OHLCV, require 220 usable bars, and compute the five rules in Python. Missing history produces a visible per-stock error; stale data forces HOLD. The AI cannot change these numbers or labels.
+2. **Technical analyst.** Inspect supplied indicators, per-rule reasons, data dates and limitations. Fundamentals, news and social sentiment are marked **unassessed**, because those analyst data channels are not connected.
+3. **Bull researcher, then bear researcher.** Build the strongest evidence-based supporting case, then challenge it against the original evidence and identify invalidation conditions. This is one bounded debate round.
+4. **Research manager.** Weigh both reports, separate facts from interpretation, and identify unresolved disagreement while retaining the computed signal.
+5. **Paper trader.** Draft a hypothetical long-only research plan using only supplied closes and ATR references. HOLD means wait; SELL describes exiting/reducing a hypothetical long. No position size, balance, price target or executable order is invented.
+6. **Risk manager.** Review the plan from conservative, aggressive and balanced perspectives in one call. Programmatic gates flag stale data and any signal other than BUY as reasons to defer a new long. Up to eight recent journal entries for the same market and evaluated symbols provide simulated-position context and saved exit reflections. This is reference memory, not model training or proof of predictive skill.
+7. **Final portfolio reviewer.** Stream a synthesis of the evidence, debate, hypothetical paper plan and risks. A Python-generated signal table precedes the AI interpretation, so the exact labels, scores, agreement and dates remain inspectable. Gross illustrative ATR reward/risk is computed in Python and supplied to the roles. The AI can recommend deferring an idea, but cannot override computed labels or create journal entries. Every role's public report and completion status is stored in `research_runs`. **View AI role reports** in chat opens them; a failed/interrupted stage leaves the run marked incomplete. Reports abandoned by an API-process restart are marked incomplete when opened.
+
+For example, with five selected strategies, two BUY votes and three HOLD votes produce `(1 + 1 + 0 + 0 + 0) / 5 = 0.4`, so the computed label is BUY and matching-vote agreement is 40%. One BUY and four HOLD votes score 0.2, producing HOLD. An old data date still forces HOLD, regardless of the score. Neither label nor agreement predicts returns.
+
+Stock-specific questions focus on named symbols present in the scan. Broader evaluation reports cover the first 20 stocks in scan score order and explicitly carry total/omitted counts; a NIFTY 200 screen still calculates all constituent signals. IPO questions use the separate NSE issue-data tool and do not run a pre-listing technical-price evaluation. General questions without completed stock evidence can receive a direct answer.
+
+The upstream project also supports dedicated fundamentals/news/sentiment tools, configurable debate teams, LangGraph checkpoints, richer portfolio management and backtesting. Those features are **not implemented here**. This app preserves its deterministic BUY/HOLD/SELL rules and manual paper journal rather than claiming full upstream feature parity. The role sequence is informed by the upstream [graph implementation](https://github.com/TauricResearch/TradingAgents/blob/main/tradingagents/graph/trading_graph.py) and [trader grounding in technical evidence](https://github.com/TauricResearch/TradingAgents/blob/main/tradingagents/agents/trader/trader.py).
+
+Chat starters include stock debates, hypothetical paper plans, strategy disagreement, SELL reviews, missing-evidence checks, IPO research and journal checklists. **More research prompts** expands the starter list.
+
+## Paper trading journal
+
+From a completed screener result or stock details, choose **Click to paper trade**. Enter whole-share quantity, a simulated entry price, entry fees and your thesis, then select **Record paper trade**. The initial price is the screen's adjusted historical close; it is a manual simulated fill, not a current executable quote. The journal preserves the original scan, signal, evidence date and risk references. All research labels can be journaled manually; a paper entry does not turn HOLD or SELL into a BUY signal.
+
+Open **Paper trading journal** to filter open/closed entries and stock symbols. India and US totals stay separate. Select **Close paper position**, enter a simulated exit price and exit fees, and record an exit reflection. A position closes in full once; duplicate entry tokens and repeated close requests are rejected. No real orders are sent.
+
+`Realized P&L = quantity × (exit price − entry price) − entry fees − exit fees`.
+
+`Unrealized P&L = quantity × (latest cached adjusted close − entry price) − entry fees`.
+
+The mark date is shown; it can predate the simulated entry. **Refresh journal** reads the price cache; run a new screen to update price evidence. Fees are user-entered, and open P&L excludes future exit fees. The journal does not simulate cash balances, partial exits, shorts, slippage, dividend cashflows, corporate-action quantity adjustments or automatic stop/target execution. Results therefore describe the recorded simulation, not broker-grade investment performance. Prices use up to four decimals; displayed P&L is rounded to two decimals using server-side decimal arithmetic.
 
 ## Strategies and signal rules
 
@@ -91,16 +125,27 @@ flowchart TD
     K --> L[Equal-weight BUY / SELL / HOLD; stale data forces HOLD]
     L --> M[Persist evidence, chart and ATR references]
     M --> N[UI polls scan status and shows evidence]
-    M --> O[Nemotron explains evidence and risks]
+    M --> TA[Technical analyst report]
+    TA --> BU[Bull researcher]
+    BU --> BE[Bear researcher challenges bull]
+    BE --> RM[Research manager]
+    RM --> TR[Hypothetical paper trader plan]
+    TR --> RI[Risk manager review]
+    RI --> O[Final portfolio reviewer]
     E -->|indian_ipos: India only| P[NSE current + upcoming IPO feed]
     C -->|Indian IPO desk| P
     P --> Q[Normalize issue dates, price bands, lots; show missing data or errors]
     Q --> B
-    Q --> O
+    Q --> IP[IPO evidence summary]
+    IP --> B
     O -->|Stream final answer via SSE| B
+    B -->|User records a simulated entry or exit| PJ[PostgreSQL paper journal]
+    PJ -->|Same-market simulated history and reflections| RI
+    TA --> RR[Persist public role reports and run status]
+    O --> RR
 ```
 
-`POST /api/chat` returns server-sent events (`stage`, `scan`, `delta`, `error`, `done`). `POST /api/scans` enqueues work; `GET /api/scans/{id}` returns status and results. Conversations, configuration, and watchlist endpoints are under `/api`. Interactive API documentation is available at `/api/docs` through the frontend proxy.
+`POST /api/chat` returns server-sent events (`stage`, `scan`, `research`, `delta`, `error`, `done`). `POST /api/scans` enqueues work; `GET /api/scans/{id}` returns status and results. `GET /api/research/{id}` returns saved role reports. `POST /api/watchlist/symbols` adds one validated symbol without dropping the other members. `GET/POST /api/journal` lists or records simulations; `POST /api/journal/{id}/close` records a manual full exit. Interactive API documentation is available at `/api/docs` through the frontend proxy.
 
 ### Indian IPO data
 
@@ -108,7 +153,7 @@ The Indian IPO desk and chat use NSE's current and upcoming issue feeds, cached 
 
 Market-specific watchlists use new settings keys without altering the database schema. Legacy watchlists are read per market until saved; existing scans remain in history. Scheduled scans use the Indian watchlist. Switching markets starts a fresh chat context while retaining saved conversations and market-filtered scan history.
 
-Tables are initialized at first boot using SQLAlchemy. Add a migration system before evolving an existing production schema. The first version has no existing database to migrate. One chat stream is admitted at a time; up to four manual scans can be outstanding. Interactive API documentation is available at **http://localhost:3000/api/docs**.
+Tables are initialized at boot using SQLAlchemy. This update adds `paper_trades` and `research_runs` without modifying existing tables, so existing scans, watchlists and chats are preserved. Add a migration system before changing existing production columns. One chat stream is admitted at a time; up to four manual scans can be outstanding. Interactive API documentation is available at **http://localhost:3000/api/docs**.
 
 ## Development and validation
 
@@ -119,7 +164,7 @@ docker compose config --quiet
 node --experimental-strip-types --test frontend/tests/screener.test.mjs
 ```
 
-Tests cover known Wilder RSI values, trend/reversion disagreement, volume-qualified breakouts, stale-data HOLD, risk-level ordering, invalid histories, market defaults, market validation, IPO feed normalization/cache/failure behavior, tool-input limits and PostgreSQL-backed API persistence/queueing. Run the integration tests while the worker is stopped so it cannot claim and process test jobs.
+Tests cover Wilder RSI values, strategy disagreement, stale-data HOLD, risk references, market/index validation, IPO feeds, composed screener filters, watchlist additions, journal entries/exits and fee arithmetic, duplicate prevention, market isolation, separate research-role calls, report persistence/failure handling, bounded large-index context and PostgreSQL-backed queueing. Run the integration tests while the worker is stopped so it cannot claim and process test jobs.
 
 For browser development, Node 22+ is supported:
 

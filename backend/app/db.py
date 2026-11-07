@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, create_engine
+from sqlalchemy import DateTime, ForeignKey, String, Text, Numeric, Integer, create_engine
+from decimal import Decimal
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
@@ -59,6 +60,36 @@ class PriceCache(Base):
     symbol: Mapped[str] = mapped_column(String(30), primary_key=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     data: Mapped[dict] = mapped_column(JSONB)
+
+
+class PaperTrade(Base):
+    __tablename__ = 'paper_trades'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    market: Mapped[str] = mapped_column(String(2), index=True)
+    symbol: Mapped[str] = mapped_column(String(24), index=True)
+    currency: Mapped[str] = mapped_column(String(3))
+    status: Mapped[str] = mapped_column(String(10), default='OPEN', index=True)
+    quantity: Mapped[int] = mapped_column(Integer)
+    entry_price: Mapped[Decimal] = mapped_column(Numeric(20, 4))
+    entry_fees: Mapped[Decimal] = mapped_column(Numeric(20, 4), default=0)
+    exit_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    exit_fees: Mapped[Decimal] = mapped_column(Numeric(20, 4), default=0)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    reflection: Mapped[str] = mapped_column(Text, default='')
+    scan_id: Mapped[str | None] = mapped_column(String(36), ForeignKey('scans.id', ondelete='SET NULL'), nullable=True)
+    signal_snapshot: Mapped[dict] = mapped_column(JSONB)
+
+
+class ResearchRun(Base):
+    __tablename__ = 'research_runs'
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    conversation_id: Mapped[str] = mapped_column(String(36), ForeignKey('conversations.id', ondelete='CASCADE'), index=True)
+    scan_id: Mapped[str | None] = mapped_column(String(36), ForeignKey('scans.id', ondelete='SET NULL'), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    status: Mapped[str] = mapped_column(String(20), default='running')
+    reports: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)

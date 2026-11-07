@@ -1,4 +1,6 @@
 import re
+from decimal import Decimal
+from uuid import UUID
 from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 from .config import DEFAULT_SYMBOLS, US_SYMBOLS
@@ -98,3 +100,28 @@ class WatchlistRequest(BaseModel):
     @classmethod
     def validate_symbols(cls, value):
         return ScanRequest(symbols=value).symbols
+
+
+class WatchlistSymbolRequest(BaseModel):
+    market: Literal['IN', 'US'] = 'IN'
+    symbol: str
+
+    @model_validator(mode='after')
+    def valid_symbol(self):
+        self.symbol = ScanRequest(market=self.market, symbols=[self.symbol]).symbols[0]
+        return self
+
+
+class PaperTradeRequest(WatchlistSymbolRequest):
+    client_token: UUID
+    scan_id: UUID
+    quantity: int = Field(gt=0, le=1_000_000, strict=True)
+    entry_price: Decimal = Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)
+    entry_fees: Decimal = Field(default=Decimal('0'), ge=0, le=1_000_000_000, max_digits=14, decimal_places=4)
+    notes: str = Field(default='', max_length=4000)
+
+
+class ClosePaperTradeRequest(BaseModel):
+    exit_price: Decimal = Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)
+    exit_fees: Decimal = Field(default=Decimal('0'), ge=0, le=1_000_000_000, max_digits=14, decimal_places=4)
+    reflection: str = Field(default='', max_length=4000)
