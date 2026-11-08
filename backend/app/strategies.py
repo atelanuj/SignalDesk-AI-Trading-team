@@ -30,7 +30,7 @@ def wilder_rsi(close, period=14):
     return pd.Series(values, index=close.index)
 
 
-def analyze(symbol, bars, selected, currency='USD', source='Yahoo Finance / yfinance', fetched_at=None):
+def analyze(symbol, bars, selected, currency='USD', source='Yahoo Finance / yfinance', fetched_at=None, as_of_date=None):
     df = pd.DataFrame(bars)
     if len(df) < 220:
         raise ValueError('At least 220 completed daily bars are required.')
@@ -72,7 +72,7 @@ def analyze(symbol, bars, selected, currency='USD', source='Yahoo Finance / yfin
     vote('breakout', breakout, f'Prior 20-day range {prev_low:.2f}–{prev_high:.2f}; volume {vol_ratio:.2f}x average.')
     score = sum(x['score'] for x in votes) / len(votes) if votes else 0
     raw_signal = 'BUY' if score >= .4 else 'SELL' if score <= -.4 else 'HOLD'
-    age = (pd.Timestamp.now(tz='UTC').date() - pd.Timestamp(df['date'].iloc[-1]).date()).days
+    age = ((as_of_date or pd.Timestamp.now(tz='UTC').date()) - pd.Timestamp(df['date'].iloc[-1]).date()).days
     stale = age > 7
     signal = 'HOLD' if stale else raw_signal
     # Long-only exit/invalidation references, not broker orders or price predictions.

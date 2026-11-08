@@ -10,7 +10,9 @@ from .agent import stream_chat
 from .config import API_KEY, DEFAULT_SYMBOLS, MODEL, NSE_SYMBOLS, US_SYMBOLS
 from .ipo import indian_ipos
 from .db import Conversation, Message, Scan, Session, Setting, ResearchRun, engine, init_db
-from .schemas import ChatRequest, ScanRequest, WatchlistRequest, WatchlistSymbolRequest
+from .schemas import ChatRequest, ScanRequest, WatchlistRequest, WatchlistSymbolRequest, CompanyResearchRequest
+from .company_data import collect_evidence
+from .backtest import collect_backtests
 from .journal import router as journal_router
 from .strategies import STRATEGIES
 from .universes import get_universe, universe_options
@@ -60,6 +62,22 @@ def ipos(market: str = Query('IN', pattern='^(IN|US)$')):
     if market != 'IN':
         raise HTTPException(422, 'IPO research is available for the Indian market only.')
     return indian_ipos()
+
+
+@app.get('/api/companies/{symbol}/research')
+def company_research(symbol: str, market: str = Query('IN', pattern='^(IN|US)$')):
+    try:
+        request = CompanyResearchRequest(market=market, symbols=[symbol])
+    except ValueError:
+        raise HTTPException(422, 'Use a valid ticker in the selected market; Indian stocks require .NS or .BO.')
+    return collect_evidence(request.symbols, request.market)
+
+
+@app.post('/api/backtests')
+def backtest(request: ScanRequest):
+    if request.universe != 'watchlist' or len(request.symbols) > 3:
+        raise HTTPException(422, 'Backtest one to three stocks at a time.')
+    return collect_backtests(request.symbols, request.strategies)
 
 
 def watchlist_value(db, market):

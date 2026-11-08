@@ -2,7 +2,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from app.db import engine
-from app.migrations import apply_migrations
+from app.migrations import apply_migrations, MIGRATIONS
 
 
 def test_exit_level_migration_preserves_old_records_and_is_repeatable():
@@ -22,6 +22,6 @@ def test_exit_level_migration_preserves_old_records_and_is_repeatable():
             apply_migrations(connection)
             row = connection.execute(text('SELECT stop_loss, target_price FROM paper_trades')).one()
             assert str(row.stop_loss) == '95.0000' and str(row.target_price) == '115.0000'
-            assert connection.execute(text('SELECT COUNT(*) FROM schema_migrations')).scalar() == 1
+            assert connection.execute(text('SELECT COUNT(*) FROM schema_migrations')).scalar() == len(MIGRATIONS)
         finally:
             transaction.rollback()

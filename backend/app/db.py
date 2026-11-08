@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Numeric, Integer, create_engine
+from sqlalchemy import DateTime, ForeignKey, String, Text, Numeric, Integer, CheckConstraint, UniqueConstraint, create_engine
 from decimal import Decimal
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -83,6 +83,30 @@ class PaperTrade(Base):
     reflection: Mapped[str] = mapped_column(Text, default='')
     scan_id: Mapped[str | None] = mapped_column(String(36), ForeignKey('scans.id', ondelete='SET NULL'), nullable=True)
     signal_snapshot: Mapped[dict] = mapped_column(JSONB)
+    wallet_market: Mapped[str | None] = mapped_column(String(2), nullable=True)
+
+
+class PaperWallet(Base):
+    __tablename__ = 'paper_wallets'
+    __table_args__ = (CheckConstraint('cash >= 0', name='paper_wallet_cash_nonnegative'),)
+    market: Mapped[str] = mapped_column(String(2), primary_key=True)
+    currency: Mapped[str] = mapped_column(String(3))
+    cash: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    starter_cash: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    total_funding: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    carry_in_funding: Mapped[Decimal] = mapped_column(Numeric(24, 4), default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PaperCashMovement(Base):
+    __tablename__ = 'paper_cash_movements'
+    __table_args__ = (UniqueConstraint('trade_id', 'kind', name='paper_cash_trade_kind_unique'),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    market: Mapped[str] = mapped_column(String(2), ForeignKey('paper_wallets.market'), index=True)
+    trade_id: Mapped[str | None] = mapped_column(String(36), ForeignKey('paper_trades.id', ondelete='CASCADE'), nullable=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    amount: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
 class ResearchRun(Base):
@@ -93,6 +117,13 @@ class ResearchRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     status: Mapped[str] = mapped_column(String(20), default='running')
     reports: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
+class ResearchSourceCache(Base):
+    __tablename__ = 'research_source_cache'
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    data: Mapped[dict] = mapped_column(JSONB)
 
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)

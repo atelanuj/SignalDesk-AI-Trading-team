@@ -112,6 +112,16 @@ class WatchlistSymbolRequest(BaseModel):
         return self
 
 
+class CompanyResearchRequest(BaseModel):
+    market: Literal['IN', 'US'] = 'IN'
+    symbols: list[str] = Field(min_length=1, max_length=3)
+
+    @model_validator(mode='after')
+    def valid_symbols(self):
+        self.symbols = ScanRequest(market=self.market, symbols=self.symbols).symbols
+        return self
+
+
 PriceLevel = Annotated[Decimal, Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)]
 
 
@@ -129,7 +139,7 @@ class PaperTradeLevelsRequest(BaseModel):
 
 class PaperTradeRequest(WatchlistSymbolRequest):
     client_token: UUID
-    scan_id: UUID
+    scan_id: UUID | None = None
     quantity: int = Field(gt=0, le=1_000_000, strict=True)
     entry_price: Decimal = Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)
     entry_fees: Decimal = Field(default=Decimal('0'), ge=0, le=1_000_000_000, max_digits=14, decimal_places=4)
@@ -147,3 +157,9 @@ class ClosePaperTradeRequest(BaseModel):
     exit_price: Decimal = Field(gt=0, le=1_000_000_000, max_digits=14, decimal_places=4)
     exit_fees: Decimal = Field(default=Decimal('0'), ge=0, le=1_000_000_000, max_digits=14, decimal_places=4)
     reflection: str = Field(default='', max_length=4000)
+
+
+class PaperTopUpRequest(BaseModel):
+    market: Literal['IN', 'US'] = 'IN'
+    client_token: UUID
+    amount: Decimal = Field(gt=0, le=10_000_000, max_digits=10, decimal_places=2)

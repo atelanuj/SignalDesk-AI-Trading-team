@@ -6,6 +6,9 @@ MIGRATIONS = [
         'ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS stop_loss NUMERIC(20, 4)',
         'ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS target_price NUMERIC(20, 4)',
     ]),
+    ('20261108_paper_wallet_link', [
+        'ALTER TABLE paper_trades ADD COLUMN IF NOT EXISTS wallet_market VARCHAR(2)',
+    ]),
 ]
 
 
